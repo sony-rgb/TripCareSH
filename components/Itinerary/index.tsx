@@ -1,15 +1,158 @@
 import React, { useState } from 'react';
-import { View, ScrollView, TouchableOpacity } from 'react-native';
+import { View, TouchableOpacity, Linking, Alert } from 'react-native';
 import { Text, Icon } from '@components';
 import { useTheme } from '@config';
 import styles from './styles';
 
+// ── Type badge config ────────────────────────────────────────────────────────
+const TYPE_CONFIG: Record<string, { bg: string; iconColor: string; icon: string; label: string }> = {
+  flight:   { bg: '#dbeafe', iconColor: '#3b82f6', icon: 'plane',   label: 'Flight'     },
+  hotel:    { bg: '#fef3c7', iconColor: '#d97706', icon: 'bed',     label: 'Lodging'    },
+  car:      { bg: '#d1fae5', iconColor: '#10b981', icon: 'car-alt', label: 'Car Rental' },
+  activity: { bg: '#ede9fe', iconColor: '#7c3aed', icon: 'star',    label: 'Activity'   },
+  cruise:   { bg: '#fce7f3', iconColor: '#9d174d', icon: 'ship',    label: 'Cruise'     },
+};
+
+function getTypeConfig(type?: string) {
+  return TYPE_CONFIG[type ?? ''] ?? { bg: '#EAF5FB', iconColor: '#4AABDB', icon: 'calendar-alt', label: 'Event' };
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function formatTime(t?: string) {
+  if (!t || !t.includes(':')) return t || '';
+  const [h, m] = t.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return t;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hr = h % 12 || 12;
+  return `${hr}:${m.toString().padStart(2, '0')} ${period}`;
+}
+
+function formatDate(d?: any) {
+  if (!d) return '';
+  const date = d instanceof Date ? d : new Date(d);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// ── Single event card ─────────────────────────────────────────────────────────
+function EventCard({ item, onEdit }: { item: any; onEdit: (item: any) => void }) {
+  const { colors } = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const cfg = getTypeConfig(item.type);
+
+  const timeLine = [
+    item.startTime ? formatTime(item.startTime) : '',
+    item.endTime   ? formatTime(item.endTime)   : '',
+  ].filter(Boolean).join(' – ');
+
+  const dateLine = [
+    item.startDate ? formatDate(item.startDate) : '',
+    item.endDate && item.endDate !== item.startDate ? formatDate(item.endDate) : '',
+  ].filter(Boolean).join(' → ');
+
+  const subLine = [dateLine, timeLine].filter(Boolean).join(' · ');
+
+  const openMap = () => {
+    if (!item.location) return;
+    const q = encodeURIComponent(item.location);
+    Linking.openURL(`https://maps.google.com/?q=${q}`).catch(() =>
+      Alert.alert('Maps', 'Could not open maps app.')
+    );
+  };
+
+  return (
+    <View style={[styles.eventCard, expanded && styles.eventCardExpanded]}>
+      {/* ── Collapsed row (always visible) ── */}
+      <TouchableOpacity
+        style={styles.eventCollapsed}
+        onPress={() => setExpanded(!expanded)}
+        activeOpacity={0.85}>
+        {/* Type badge icon */}
+        <View style={[styles.typeBadge, { backgroundColor: cfg.bg }]}>
+          <Icon name={cfg.icon} size={17} color={cfg.iconColor} />
+        </View>
+        {/* Summary */}
+        <View style={styles.eventSummary}>
+          <Text style={[styles.eventTitle, { color: colors.text }]} numberOfLines={1}>
+            {item.title}
+          </Text>
+          {subLine ? (
+            <Text style={styles.eventSub} numberOfLines={1}>{subLine}</Text>
+          ) : null}
+        </View>
+        {/* Chevron */}
+        <Icon
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color="#9ca3af"
+          style={styles.chevron}
+        />
+      </TouchableOpacity>
+
+      {/* ── Expanded body ── */}
+      {expanded && (
+        <View style={styles.eventBody}>
+          <View style={styles.eventDivider} />
+
+          {/* Type label */}
+          <View style={[styles.typeLabelBadge, { backgroundColor: cfg.bg }]}>
+            <Icon name={cfg.icon} size={13} color={cfg.iconColor} />
+            <Text style={[styles.typeLabelTxt, { color: cfg.iconColor }]}>{cfg.label}</Text>
+          </View>
+
+          {/* Detail rows */}
+          {dateLine ? <DetailRow label="Date" value={dateLine} /> : null}
+          {timeLine ? <DetailRow label="Time" value={timeLine} /> : null}
+          {item.location ? <DetailRow label="Location" value={item.location} /> : null}
+          {item.description ? (
+            <View style={styles.descRow}>
+              <Text style={styles.detailLabel}>Notes</Text>
+              <Text style={styles.detailValue}>{item.description}</Text>
+            </View>
+          ) : null}
+
+          {/* Action buttons */}
+          <View style={styles.eventActions}>
+            <TouchableOpacity
+              style={[styles.editBtn, { backgroundColor: '#4AABDB' }]}
+              onPress={() => onEdit(item)}
+              activeOpacity={0.85}>
+              <Icon name="edit" size={13} color="white" />
+              <Text style={styles.editBtnTxt}>Edit</Text>
+            </TouchableOpacity>
+            {item.location ? (
+              <TouchableOpacity
+                style={styles.mapBtn}
+                onPress={openMap}
+                activeOpacity={0.85}>
+                <Icon name="map-marker-alt" size={13} color="#4AABDB" />
+                <Text style={styles.mapBtnTxt}>Map</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.detailRow}>
+      <View style={styles.detailCol}>
+        <Text style={styles.detailLabel}>{label}</Text>
+        <Text style={styles.detailValue}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
+// ── Itinerary list ────────────────────────────────────────────────────────────
 interface ItineraryItem {
   id: string;
   title: string;
   description: string;
-  startDate?: Date | string;
-  endDate?: Date | string;
+  startDate?: any;
+  endDate?: any;
   startTime?: string;
   endTime?: string;
   location?: string;
@@ -25,155 +168,25 @@ interface ItineraryProps {
 
 export default function Itinerary({ items = [], onEditItem }: ItineraryProps) {
   const { colors } = useTheme();
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
-
-  const toggleItemExpansion = (itemId: string) => {
-    const newExpandedItems = new Set(expandedItems);
-    if (newExpandedItems.has(itemId)) {
-      newExpandedItems.delete(itemId);
-    } else {
-      newExpandedItems.add(itemId);
-    }
-    setExpandedItems(newExpandedItems);
-  };
-
-  const handleEditItem = (item: ItineraryItem) => {
-    if (onEditItem) {
-      onEditItem(item);
-    }
-  };
-
-  const formatDate = (date?: Date | string) => {
-    if (!date) return '';
-    const d = date instanceof Date ? date : new Date(date);
-    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  };
-
-  // Convert 24-hour time to 12-hour format with AM/PM (e.g., "14:30" -> "2:30 PM")
-  const formatTime = (time24h?: string) => {
-    if (!time24h || !time24h.includes(':')) return time24h || '';
-    
-    const [hours, minutes] = time24h.split(':').map(s => parseInt(s, 10));
-    if (isNaN(hours) || isNaN(minutes)) return time24h;
-    
-    const period = hours >= 12 ? 'PM' : 'AM';
-    let h = hours % 12;
-    if (h === 0) h = 12;
-    
-    return `${h}:${minutes.toString().padStart(2, '0')} ${period}`;
-  };
-
-  const renderTimeRange = (item: ItineraryItem) => {
-    const dateLabel = formatDate(item.startDate);
-    const endDateLabel = item.endDate ? formatDate(item.endDate) : undefined;
-    
-    // Convert times to 12-hour format
-    const startTimeFormatted = formatTime(item.startTime);
-    const endTimeFormatted = formatTime(item.endTime);
-    
-    const timeLabel = startTimeFormatted && endTimeFormatted
-      ? `${startTimeFormatted} - ${endTimeFormatted}`
-      : startTimeFormatted || '';
-
-    return (
-      <>
-        {(dateLabel || timeLabel) && (
-          <Text caption1 light style={styles.itemTime}>
-            {dateLabel}
-            {endDateLabel && endDateLabel !== dateLabel ? ` → ${endDateLabel}` : ''}
-            {timeLabel ? (dateLabel || endDateLabel ? ` • ${timeLabel}` : timeLabel) : ''}
-          </Text>
-        )}
-      </>
-    );
-  };
-
-  const renderItineraryItem = (item: ItineraryItem) => {
-    const isExpanded = expandedItems.has(item.id);
-    const shouldShowViewMore = item.description.length > 150;
-    const displayDescription = isExpanded 
-      ? item.description 
-      : shouldShowViewMore 
-        ? item.description.substring(0, 150) + '...' 
-        : item.description;
-
-    return (
-      <View key={item.id} style={styles.itineraryRow}>
-        {/* Icon on the left */}
-        <View style={styles.iconContainer}>
-          <Icon
-            name={item.icon || 'calendar'}
-            size={24}
-            color={colors.primary}
-          />
-        </View>
-
-        {/* Card on the right */}
-        <View style={styles.cardContainer}>
-          <TouchableOpacity activeOpacity={0.85} onPress={() => handleEditItem(item)} style={styles.itineraryCard}>
-            {/* Edit icon in top right */}
-            <TouchableOpacity 
-              style={styles.editButton}
-              onPress={() => handleEditItem(item)}
-            >
-              <Icon
-                name="edit"
-                size={16}
-                color={colors.border}
-              />
-            </TouchableOpacity>
-
-            <Text headline semibold style={styles.itemTitle}>
-              {item.title}
-            </Text>
-            <View style={styles.badgeRow}>
-              {typeof item.isCompleted === 'boolean' && (
-                <View style={[styles.badge, item.isCompleted ? styles.badgeCompleted : null]}>
-                  <Text caption1 style={styles.badgeText}>
-                    {item.isCompleted ? 'Completed' : 'Open'}
-                  </Text>
-                </View>
-              )}
-            </View>
-            {renderTimeRange(item)}
-            {item.location && (
-              <Text caption1 light style={styles.itemLocation}>
-                {item.location}
-              </Text>
-            )}
-            <Text body2 style={styles.itemDescription}>
-              {displayDescription}
-            </Text>
-            {shouldShowViewMore && (
-              <TouchableOpacity 
-                style={styles.viewMoreButton}
-                onPress={() => toggleItemExpansion(item.id)}
-              >
-                <Text caption1 accentColor>
-                  {isExpanded ? 'View Less' : 'View More'}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  };
 
   if (items.length === 0) {
     return (
       <View style={styles.emptyState}>
-        <Icon name="calendar" size={48} color={colors.border} />
-        <Text body2 grayColor style={styles.emptyText}>
-          No activities planned yet
-        </Text>
+        <Icon name="calendar-alt" size={40} color="#d1d5db" />
+        <Text style={styles.emptyText}>No items yet</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {items.map(renderItineraryItem)}
+      {items.map(item => (
+        <EventCard
+          key={item.id}
+          item={item}
+          onEdit={(i) => onEditItem && onEditItem(i)}
+        />
+      ))}
     </View>
   );
 }

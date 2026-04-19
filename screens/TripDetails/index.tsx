@@ -1,415 +1,356 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, ScrollView, FlatList, TouchableOpacity } from 'react-native';
-import { Header, Text, Icon } from '@components';
-import TripCalendar from '../../components/TripCalendar';
-import Itinerary from '../../components/Itinerary';
-import { useTranslation } from 'react-i18next';
+import React, { useState, useCallback, useRef } from 'react';
+import {
+  View,
+  ScrollView,
+  TouchableOpacity,
+  FlatList,
+  Modal,
+  Pressable,
+  Alert,
+} from 'react-native';
+import { SafeAreaView, Text, Icon } from '@components';
 import { useTheme } from '@config';
+import { useTranslation } from 'react-i18next';
 import { useSelector } from 'react-redux';
 import { useFocusEffect } from '@react-navigation/native';
-import styles from './styles';
-import { MenuItem } from '../../components/PopupMenu';
-import TripItem from '../../database/model/TripItem';
-import { BaseColor } from '@config';
 import { container } from '../../services/container';
-interface TripData {
-  id: string;
-  name: string;
-  destinationId: string;
-  destination: string;
-  description: string;
-  startTime: Date;
-  endTime: Date;
-  userId: string;
-  createdAtUtc: Date;
-  updatedAtUtc: Date;
+import Itinerary from '../../components/Itinerary';
+import styles from './styles';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatDateRange(start: any, end: any): string {
+  if (!start || !end) return '';
+  const fmt = (d: any) => {
+    const date = d instanceof Date ? d : new Date(d);
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+    });
+  };
+  return `${fmt(start)} – ${fmt(end)}`;
 }
 
-export default function TripDetails({ navigation }) {
+function formatShortRange(start: any, end: any): string {
+  if (!start || !end) return '';
+  const s = start instanceof Date ? start : new Date(start);
+  const e = end instanceof Date ? end : new Date(end);
+  const fmt = (d: Date) => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return `${fmt(s)} – ${fmt(e)}`;
+}
+
+function getDuration(start: any, end: any): string {
+  if (!start || !end) return '';
+  const s = start instanceof Date ? start : new Date(start);
+  const e = end instanceof Date ? end : new Date(end);
+  const diff = Math.floor(Math.abs(e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  return diff === 1 ? '1 day' : `${diff} days`;
+}
+
+function generateDays(start: any, end: any) {
+  if (!start || !end) return [];
+  const days = [];
+  const cur = new Date(start instanceof Date ? start : new Date(start));
+  const endDate = end instanceof Date ? end : new Date(end);
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+  while (cur <= endDate) {
+    const key = `${cur.getFullYear()}-${cur.getMonth()}-${cur.getDate()}`;
+    days.push({
+      date: new Date(cur),
+      dayName: cur.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }),
+      dayNum: cur.getDate(),
+      isToday: key === todayKey,
+      key,
+    });
+    cur.setDate(cur.getDate() + 1);
+  }
+  return days;
+}
+
+// ── Add Item Modal ─────────────────────────────────────────────────────────────
+
+const ADD_OPTIONS = [
+  { label: 'Flight',      icon: 'plane',     bg: '#dbeafe', iconColor: '#3b82f6', route: 'FlightAdd'    },
+  { label: 'Lodging',     icon: 'bed',       bg: '#fef3c7', iconColor: '#d97706', route: 'HotelAdd'     },
+  { label: 'Car Rental',  icon: 'car-alt',   bg: '#d1fae5', iconColor: '#10b981', route: 'CarAdd'       },
+  { label: 'Activity',    icon: 'star',      bg: '#ede9fe', iconColor: '#7c3aed', route: 'ActivityAdd'  },
+];
+
+function AddItemModal({ visible, onClose, onSelect, colors }: any) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles2.overlay} onPress={onClose}>
+        <Pressable style={styles2.sheet} onPress={() => {}}>
+          <View style={styles2.handle} />
+          <Text style={[styles2.sheetTitle, { color: colors.text }]}>
+            What would you like to add?
+          </Text>
+          <View style={styles2.optGrid}>
+            {ADD_OPTIONS.map(opt => (
+              <TouchableOpacity
+                key={opt.label}
+                style={[styles2.opt, { backgroundColor: opt.bg }]}
+                onPress={() => { onClose(); onSelect(opt); }}
+                activeOpacity={0.85}>
+                <View style={[styles2.optIcon, { backgroundColor: opt.bg }]}>
+                  <Icon name={opt.icon} size={24} color={opt.iconColor} />
+                </View>
+                <Text style={[styles2.optLabel, { color: colors.text }]}>{opt.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity style={[styles2.cancel, { backgroundColor: '#EAF5FB' }]} onPress={onClose}>
+            <Text style={styles2.cancelTxt}>Cancel</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// inline styles for the modal (kept separate to avoid polluting main stylesheet)
+const styles2 = {
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' as const },
+  sheet: { backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, paddingBottom: 36 },
+  handle: { width: 36, height: 4, backgroundColor: '#e5e7eb', borderRadius: 2, alignSelf: 'center' as const, marginBottom: 12 },
+  sheetTitle: { fontSize: 15, fontWeight: '600' as const, marginBottom: 14, textAlign: 'center' as const },
+  optGrid: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 9 },
+  opt: { width: '47%' as any, borderRadius: 13, padding: 13, paddingHorizontal: 11, alignItems: 'center' as const, gap: 6 },
+  optIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center' as const, justifyContent: 'center' as const },
+  optLabel: { fontSize: 13, fontWeight: '500' as const },
+  cancel: { marginTop: 11, borderRadius: 26, paddingVertical: 12, alignItems: 'center' as const },
+  cancelTxt: { fontSize: 14, fontWeight: '600' as const, color: '#6b7280' },
+};
+
+// ── Main Screen ───────────────────────────────────────────────────────────────
+
+export default function TripDetails({ navigation }: any) {
   const { t } = useTranslation();
   const { colors } = useTheme();
-  const selectedTrip = useSelector((state: any) => state.trips.selectedTrip) as TripData | null;
+  const selectedTrip = useSelector((state: any) => state.trips.selectedTrip);
+
   const [tripItems, setTripItems] = useState<any[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [showFullDescription, setShowFullDescription] = useState(false);
-  const [showTripDetails, setShowTripDetails] = useState(false);
+  const [showTripInfo, setShowTripInfo] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const menuItems: MenuItem[] = [
-    {
-      id: 'edit_trip',
-      title: t('edit_trip'),
-      icon: 'edit',
-      onPress: () => {
-        if (selectedTrip) {
-          navigation.navigate('TripAdd', { tripId: selectedTrip.id });
-        }
-      },
-    },
-    {
-      id: 'add_flight',
-      title: t('add_flight'),
-      icon: 'plane',
-      onPress: () => {
-        navigation.navigate('FlightAdd', { selectedDate: selectedDate });
-      },
-    },
-    {
-      id: 'add_hotel',
-      title: t('add_hotel'),
-      icon: 'bed',
-      onPress: () => {
-        // Navigate to hotel booking screen when implemented
-        console.log('Navigate to add hotel');
-      },
-    },
-    {
-      id: 'add_activity',
-      title: 'Add Activity',
-      icon: 'calendar',
-      onPress: () => {
-        navigation.navigate('ActivityAdd');
-      },
-    },
-  ];
+  const days = selectedTrip
+    ? generateDays(selectedTrip.startTime, selectedTrip.endTime)
+    : [];
 
-  const formatDate = (date) => {
-    if (!date) return '';
-    if (typeof date === 'string') {
-      return new Date(date).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        timeZone: 'UTC'
-      });
-    }
-    if (date instanceof Date) {
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        timeZone: 'UTC'
-      });
-    }
-    return '';
-  };
+  // Build set of day keys that have items
+  const daysWithItems = new Set(
+    tripItems
+      .filter(i => i.startDate)
+      .map(i => {
+        const d = new Date(i.startDate);
+        return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      })
+  );
 
-  const formatDateRange = (start, end) => {
-    if (!start || !end) return '';
-    const startDate = start instanceof Date ? start : new Date(start);
-    const endDate = end instanceof Date ? end : new Date(end);
-    
-    const formatSingleDate = (date) => {
-      const weekday = date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
-      const month = date.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
-      const day = date.toLocaleDateString('en-US', { day: 'numeric', timeZone: 'UTC' });
-      const year = date.toLocaleDateString('en-US', { year: 'numeric', timeZone: 'UTC' });
-      return `${weekday}, ${month} ${day}, ${year}`;
-    };
-    
-    const startFormatted = formatSingleDate(startDate);
-    const endFormatted = formatSingleDate(endDate);
-    
-    return `${startFormatted} to ${endFormatted}`;
-  };
-
-  const getDuration = (start, end) => {
-    if (!start || !end) return '';
-    const startDate = start instanceof Date ? start : new Date(start);
-    const endDate = end instanceof Date ? end : new Date(end);
-    
-    // Reset to start of day for accurate day counting
-    const startDay = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-    const endDay = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-    
-    // Calculate difference in days and add 1 to include both start and end days
-    const diffTime = Math.abs(endDay.getTime() - startDay.getTime());
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
-    return diffDays === 1 ? '1 day' : `${diffDays} days`;
-  };
-
-  // Fetch trip items when screen comes into focus or selected trip changes
-  const fetchTripItems = useCallback(async () => {
-    if (!selectedTrip) {
-      setTripItems([]);
-      setSelectedDate(null);
-      return;
-    }
-
+  const fetchItems = useCallback(async () => {
+    if (!selectedTrip) return;
     try {
-      setLoadingItems(true);
+      setLoading(true);
       const items = await container.getTripItemService().getTripItems(selectedTrip.id);
       setTripItems(items);
-      
-      // Set default selected date based on available items
-      if (items && items.length > 0) {
-        const today = new Date();
-        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        
-        // Check if today has items
-        const todayItems = items.filter(item => {
-          if (!item.startDate) return false;
-          const itemDate = new Date(item.startDate);
-          const itemStart = new Date(itemDate.getFullYear(), itemDate.getMonth(), itemDate.getDate());
-          return itemStart.getTime() === todayStart.getTime();
-        });
-        
-        if (todayItems.length > 0) {
-          // Today has items, select today
-          setSelectedDate(todayStart);
-          console.log('📅 Defaulting to today (has items):', todayStart.toDateString());
-        } else {
-          // Find the first date with items
-          const sortedItems = items
-            .filter(item => item.startDate)
-            .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
-          
-          if (sortedItems.length > 0) {
-            const firstItemDate = new Date(sortedItems[0].startDate);
-            const firstDate = new Date(firstItemDate.getFullYear(), firstItemDate.getMonth(), firstItemDate.getDate());
-            setSelectedDate(firstDate);
-            console.log('📅 Defaulting to first available date:', firstDate.toDateString());
-          }
-        }
-      } else {
-        setSelectedDate(null);
-      }
-    } catch (error) {
-      console.error('Error fetching trip items:', error);
-      setTripItems([]);
-      setSelectedDate(null);
+      // default to first day
+      if (!selectedDate && days.length > 0) setSelectedDate(days[0].date);
+    } catch (e) {
+      console.error(e);
     } finally {
-      setLoadingItems(false);
+      setLoading(false);
     }
   }, [selectedTrip]);
 
-  // Refresh data when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      fetchTripItems();
-    }, [fetchTripItems])
-  );
+  useFocusEffect(useCallback(() => { fetchItems(); }, [fetchItems]));
 
-  // Organize trip items for the Itinerary component
-  const handleEditTripItem = (item: any) => {
-    if (item.type === 'activity') {
-      navigation.navigate('ActivityEdit', { tripItemId: item.id });
-      return;
-    }
-    console.log('✏️ Edit trip item:', item);
+  // Items for the currently selected day
+  const dayItems = selectedDate
+    ? tripItems.filter(item => {
+        if (!item.startDate) return false;
+        const s = new Date(item.startDate);
+        const e = item.endDate ? new Date(item.endDate) : s;
+        const sel = selectedDate;
+        const selKey = `${sel.getFullYear()}-${sel.getMonth()}-${sel.getDate()}`;
+        const sKey = `${s.getFullYear()}-${s.getMonth()}-${s.getDate()}`;
+        const eKey = `${e.getFullYear()}-${e.getMonth()}-${e.getDate()}`;
+        return selKey >= sKey && selKey <= eKey;
+      }).sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+    : [];
+
+  const itineraryItems = dayItems.map(item => ({
+    id: item.id,
+    title: item.title,
+    description: item.description || '',
+    startDate: item.startDate,
+    endDate: item.endDate,
+    startTime: item.startTime,
+    endTime: item.endTime,
+    location: item.venue || item.address || item.location || '',
+    icon: item.icon || 'calendar-alt',
+    type: item.type,
+    isCompleted: item.isCompleted ?? false,
+  }));
+
+  const handleEditItem = (item: any) => {
+    if (item.type === 'activity') navigation.navigate('ActivityEdit', { tripItemId: item.id });
+    else if (item.type === 'flight') navigation.navigate('FlightAdd', { tripItemId: item.id });
   };
 
-  const handleDateSelect = (date: Date) => {
-    console.log('📅 Date selected:', date.toDateString());
-    setSelectedDate(date);
+  const handleAddSelect = (opt: any) => {
+    navigation.navigate(opt.route, { selectedDate });
   };
 
-  const formatItineraryTitle = (date: Date) => {
-    return `Itinerary - ${date.toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      month: 'short', 
-      day: 'numeric' 
-    })}`;
-  };
+  const itineraryDayLabel = selectedDate
+    ? selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' })
+    : 'Itinerary';
 
-  const organizeTripItems = () => {
-    if (!tripItems || tripItems.length === 0 || !selectedDate) {
-      return [];
-    }
-
-    // Include items whose range covers the selected date
-    const filteredItems = tripItems.filter(item => {
-      if (!item.startDate) return false;
-
-      const start = item.startDate ? new Date(item.startDate) : null;
-      const end = item.endDate ? new Date(item.endDate) : start;
-
-      if (!start) return false;
-
-      const dayStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
-      const startDay = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-      const endDay = end ? new Date(end.getFullYear(), end.getMonth(), end.getDate()) : startDay;
-
-      return dayStart >= startDay && dayStart <= endDay;
-    });
-    
-    console.log(`📅 Showing ${filteredItems.length} items for date: ${selectedDate.toDateString()}`);
-
-    // Sort by start date (chronological order)
-    const sortedItems = filteredItems.sort((a, b) => {
-      if (!a.startDate && !b.startDate) return 0;
-      if (!a.startDate) return 1;
-      if (!b.startDate) return -1;
-      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
-    });
-
-    return sortedItems.map(item => {
-      // All fields are now directly on the trip item (consolidated schema)
-      const startDate = item.startDate;
-      const endDate = item.endDate;
-      const startTime = item.startTime;
-      const endTime = item.endTime;
-      const isCompleted = item.isCompleted ?? false;
-
-      const formatTime = (date: any, fallback?: string) => {
-        if (fallback) return fallback;
-        if (!date) return '';
-        const d = date instanceof Date ? date : new Date(date);
-        return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-      };
-
-      return {
-        id: item.id,
-        title: item.title,
-        description: item.description || '',
-        startDate,
-        endDate,
-        startTime: startDate ? formatTime(startDate, startTime) : startTime,
-        endTime: endDate ? formatTime(endDate, endTime) : endTime,
-        location: item.venue || item.address || item.location || '',
-        icon: item.icon || 'calendar',
-        type: item.type,
-        isCompleted,
-      };
-    });
-  };
-
-  const itineraryItems = organizeTripItems();
-  const hasItemsForSelectedDate = itineraryItems.length > 0;
-
+  // ── No trip guard ─────────────────────────────────────────────────────────
   if (!selectedTrip) {
     return (
-      <View style={styles.container}>
-        <Header
-          title={t('trip_details')}
-          renderLeft={() => {
-            return <Icon name="arrow-left" size={20} color={colors.primary} />;
-          }}
-          onPressLeft={() => navigation.goBack()}
-        />
+      <SafeAreaView style={[styles.container]} edges={['top', 'left', 'right']}>
         <View style={styles.noTripContainer}>
-          <Text title2 semibold style={styles.noTripText}>
-            {t('no_trip_selected')}
+          <Text style={{ fontSize: 48, marginBottom: 12 }}>🧳</Text>
+          <Text style={[styles.noTripText, { color: colors.text, fontSize: 17, fontWeight: '600' }]}>
+            No trip selected
           </Text>
-          <Text body1 grayColor style={styles.noTripSubtext}>
-            {t('select_trip_to_view_details')}
+          <Text style={[styles.noTripSubtext, { color: '#6b7280', fontSize: 13 }]}>
+            Go back and tap a trip to view its details.
           </Text>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Header
-        title={selectedTrip.name}
-        renderLeft={() => {
-          return <Icon name="arrow-left" size={20} color={colors.primary} />;
-        }}
-        onPressLeft={() => navigation.goBack()}
-        menuItems={menuItems}
-        titleNumberOfLines={0}
-        styleCenter={styles.headerCenter}
-      />
-      <ScrollView style={styles.content}>
-        {/* Trip summary card with expandable details */}
-        <View style={styles.tripHeaderCard}>
-          <TouchableOpacity
-            style={styles.tripHeaderRow}
-            onPress={() => setShowTripDetails(!showTripDetails)}
-            activeOpacity={0.7}
-          >
-            <Text body1 semibold style={styles.tripTitle}>
-              {formatDateRange(selectedTrip.startTime, selectedTrip.endTime)}
-            </Text>
-            <Icon
-              name={showTripDetails ? 'chevron-up' : 'chevron-down'}
-              size={18}
-              color={colors.text}
-            />
-          </TouchableOpacity>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
 
-          {showTripDetails && (
-            <View style={styles.tripDetailsBody}>
-              <View style={styles.infoRow}>
-                <Text caption1 light style={styles.infoLabel}>
-                  Destination
-                </Text>
-                <Text headline style={styles.infoValue}>
-                  {selectedTrip.destination}
-                </Text>
-              </View>
+      {/* ── Top Bar ── */}
+      <View style={[styles.topBar, { backgroundColor: '#EAF5FB', borderBottomColor: '#D6EEF8' }]}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+          <Icon name="chevron-left" size={17} color="#4AABDB" />
+          <Text style={styles.backTxt}>Back</Text>
+        </TouchableOpacity>
 
-              <View style={styles.infoRow}>
-                <Text caption1 light style={styles.infoLabel}>
-                  {t('duration')}
-                </Text>
-                <Text headline style={styles.infoValue}>
-                  {getDuration(selectedTrip.startTime, selectedTrip.endTime)}
-                </Text>
-              </View>
-
-              {selectedTrip.description && (
-                <View style={styles.descriptionRow}>
-                  <Text body2 style={styles.descriptionText}>
-                    {showFullDescription 
-                      ? selectedTrip.description 
-                      : selectedTrip.description.length > 200 
-                        ? selectedTrip.description.substring(0, 200) + '...' 
-                        : selectedTrip.description
-                    }
-                  </Text>
-                  {selectedTrip.description.length > 200 && (
-                    <TouchableOpacity 
-                      style={styles.viewMoreButton}
-                      onPress={() => setShowFullDescription(!showFullDescription)}
-                    >
-                      <Text caption1 accentColor>
-                        {showFullDescription ? 'View Less' : 'View More'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
+        <View style={styles.topBarCenter}>
+          <Text style={styles.topBarTitle} numberOfLines={1}>{selectedTrip.name}</Text>
+          <View style={styles.topBarBadgeRow}>
+            <TouchableOpacity
+              style={styles.sharedBadge}
+              onPress={() => navigation.navigate('ShareTrip', { tripId: selectedTrip.id })}>
+              <Text style={styles.sharedBadgeTxt}>⚡ 2 shared</Text>
+            </TouchableOpacity>
+            <View style={styles.ownerBadge}>
+              <Text style={styles.ownerBadgeTxt}>Owner</Text>
             </View>
-          )}
+          </View>
         </View>
-        
-        {/* Calendar Days Section */}
-        <View style={styles.calendarSection}>
-          <TripCalendar
-            startDate={selectedTrip.startTime}
-            endDate={selectedTrip.endTime}
-            tripItems={tripItems}
-            onDateSelect={handleDateSelect}
-            selectedDate={selectedDate}
+
+        <TouchableOpacity onPress={() => navigation.navigate('ShareTrip', { tripId: selectedTrip.id })}>
+          <Text style={[styles.menuBtn, { color: '#6b7280' }]}>···</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ── Collapsible Date Strip ── */}
+      <TouchableOpacity
+        style={[styles.dateStrip, { backgroundColor: '#EAF5FB', borderBottomColor: '#e5e7eb' }]}
+        onPress={() => setShowTripInfo(!showTripInfo)}
+        activeOpacity={0.75}>
+        <Text style={styles.dateStripLabel}>
+          {formatShortRange(selectedTrip.startTime, selectedTrip.endTime)}
+        </Text>
+        <Icon name={showTripInfo ? 'chevron-up' : 'chevron-down'} size={16} color="#6b7280" />
+      </TouchableOpacity>
+
+      {/* ── Expanded Trip Info ── */}
+      {showTripInfo && (
+        <View style={[styles.tripInfoBox, { backgroundColor: '#EAF5FB', borderBottomColor: '#e5e7eb' }]}>
+          {selectedTrip.destination ? (
+            <Text style={styles.tripInfoTitle}>{selectedTrip.destination}</Text>
+          ) : null}
+          <Text style={styles.tripInfoRow}>
+            <Text style={{ fontWeight: '600' }}>Duration: </Text>
+            {getDuration(selectedTrip.startTime, selectedTrip.endTime)}
+          </Text>
+          {selectedTrip.description ? (
+            <Text style={styles.tripInfoDesc}>{selectedTrip.description}</Text>
+          ) : null}
+        </View>
+      )}
+
+      {/* ── Day Navigation ── */}
+      {days.length > 0 && (
+        <View style={[styles.dayNav, { borderBottomColor: '#e5e7eb' }]}>
+          <FlatList
+            data={days}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={d => d.key}
+            contentContainerStyle={styles.dayNavContent}
+            renderItem={({ item: day }) => {
+              const isActive = selectedDate &&
+                day.date.getDate() === selectedDate.getDate() &&
+                day.date.getMonth() === selectedDate.getMonth() &&
+                day.date.getFullYear() === selectedDate.getFullYear();
+              const hasItems = daysWithItems.has(day.key);
+              return (
+                <TouchableOpacity
+                  style={[styles.dayBtn, isActive && styles.dayBtnActive]}
+                  onPress={() => setSelectedDate(day.date)}
+                  activeOpacity={0.8}>
+                  <Text style={[styles.dayBtnName, isActive && styles.dayBtnNameActive]}>
+                    {day.dayName}
+                  </Text>
+                  <Text style={[styles.dayBtnNum, isActive && styles.dayBtnNumActive]}>
+                    {day.dayNum}
+                  </Text>
+                  {hasItems && (
+                    <View style={[styles.dayBtnDot, isActive && styles.dayBtnDotActive]} />
+                  )}
+                </TouchableOpacity>
+              );
+            }}
           />
         </View>
-        
-        {/* Itinerary Section */}
+      )}
+
+      {/* ── Itinerary Body ── */}
+      <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
         <View style={styles.itinerarySection}>
-          <Text headline semibold style={styles.sectionTitle}>
-            {selectedDate ? formatItineraryTitle(selectedDate) : 'Itinerary'}
+          <Text style={styles.itineraryTitle}>
+            {`Itinerary – ${itineraryDayLabel}`}
           </Text>
-          {hasItemsForSelectedDate ? (
-            <Itinerary 
-              items={itineraryItems}
-              onEditItem={handleEditTripItem}
-            />
+
+          {itineraryItems.length > 0 ? (
+            <Itinerary items={itineraryItems} onEditItem={handleEditItem} />
           ) : (
-            <View style={styles.noItemsContainer}>
-              <Icon
-                name="calendar"
-                size={48}
-                color={BaseColor.grayColor}
-              />
-              <Text body1 grayColor style={styles.noItemsText}>
-                No activities planned yet
-              </Text>
+            <View style={styles.emptyDay}>
+              <Text style={styles.emptyDayIcon}>🗓️</Text>
+              <Text style={styles.emptyDayTxt}>Nothing planned for this day yet</Text>
             </View>
           )}
+
+          {/* Add to this day */}
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={() => setShowAddModal(true)}
+            activeOpacity={0.8}>
+            <Icon name="plus" size={17} color="#4AABDB" />
+            <Text style={styles.addBtnTxt}>Add to this day</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
-    </View>
+
+      {/* ── Add Item Modal ── */}
+      <AddItemModal
+        visible={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSelect={handleAddSelect}
+        colors={colors}
+      />
+
+    </SafeAreaView>
   );
-} 
+}
