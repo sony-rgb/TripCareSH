@@ -1,0 +1,69 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "lib": [
+      "dom",
+      "esnext"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": false,
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-native",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "baseUrl": ".",
+    "typeRoots": [
+      "./node_modules/@types",
+      "./global.d.ts"
+    ],
+    "paths": {
+      "@actions": [
+        "./actions"
+      ],
+      "@assets": [
+        "./assets"
+      ],
+      "@components": [
+        "./components"
+      ],
+      "@config": [
+        "./config"
+      ],
+      "@data": [
+        "./data"
+      ],
+      "@lang": [
+        "./lang"
+      ],
+      "@screens": [
+        "./screens"
+      ],
+      "@services": [
+        "./services"
+      ],
+      "@utils": [
+        "./utils"
+      ]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.js",
+    "**/*.jsx",
+    "global.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "android",
+    "ios"
+  ],
+  "extends": "expo/tsconfig.base.json"
+}

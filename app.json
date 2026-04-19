@@ -1,0 +1,83 @@
+{
+  "expo": {
+    "name": "TripCare",
+    "slug": "tripcare",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/tripcare-logo.png",
+    "jsEngine": "hermes",
+    "newArchEnabled": false,
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "co.tripcare",
+      "associatedDomains": [
+        "applinks:tripcare.co"
+      ],
+      "statusBar": {
+        "style": "dark"
+      }
+    },
+    "android": {
+      "jsEngine": "hermes",
+      "package": "co.tripcare",
+      "statusBar": {
+        "barStyle": "dark-content",
+        "backgroundColor": "#FFFFFF"
+      },
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/tripcare-logo.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "tripcare",
+              "host": "*"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-background-fetch",
+      "expo-task-manager",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": false
+          },
+          "ios": {
+            "deploymentTarget": "15.1",
+            "extraPods": [
+              {
+                "name": "simdjson",
+                "path": "../node_modules/@nozbe/simdjson"
+              },
+              {
+                "name": "WatermelonDB",
+                "path": "../node_modules/@nozbe/watermelondb"
+              }
+            ]
+          }
+        }
+      ]
+    ]
+  }
+}
