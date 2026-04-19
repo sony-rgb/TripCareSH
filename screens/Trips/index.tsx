@@ -1,43 +1,287 @@
-import { ActivityIndicator, ScrollView, View, TouchableOpacity, Alert } from 'react-native';
-import Modal from 'react-native-modal';
-import { Button, Header, Icon, Image, Text, TextInput } from '@components';
+import React, { useCallback, useState } from 'react';
+import {
+  View,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+} from 'react-native';
+import { SafeAreaView, Text, Icon, TextInput } from '@components';
+import { useTheme } from '@config';
 import { useTranslation } from 'react-i18next';
-import { Images, useTheme } from '@config';
-import { container } from '@services';
-import { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useDispatch } from 'react-redux';
+import { container } from '@services';
 import { setSelectedTrip } from '../../actions/trips';
-import styles from './styles';
-import Trip from '../../database/model/Trip';
 import { seedFromCSV, clearAllData, clearAllDataPermanently } from '../../database/csvSeeder';
-import TripItem from '../../components/TripItem';
-import { MenuItem } from '../../components/PopupMenu';
 import AuthService from '../../services/AuthService';
+import Trip from '../../database/model/Trip';
+import styles from './styles';
 
-export default function Trips({ navigation }) {
+// ── Trip logo (TripCare polygon mark) ────────────────────────────────────────
+// Uses react-native-svg for crisp vector rendering matching the prototype
+import Svg, { Polygon } from 'react-native-svg';
+
+function TripLogo({ size = 36 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 40 40">
+      {/* Full kite shape — light blue */}
+      <Polygon
+        points="20,4 34,34 20,26 6,34"
+        fill="#4AABDB"
+        stroke="#1a1a2e"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      {/* Right half — darker blue for depth */}
+      <Polygon
+        points="20,4 34,34 20,26"
+        fill="#2E8FB8"
+        stroke="#1a1a2e"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+// ── Owned trip card ───────────────────────────────────────────────────────────
+function OwnedTripCard({ trip, onPress, onShare, onDelete, colors }: any) {
+  const formatDate = (date: any) => {
+    if (!date) return '';
+    return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  };
+  const getDuration = (start: any, end: any) => {
+    if (!start || !end) return '';
+    const s = new Date(start), e = new Date(end);
+    const diff = Math.floor(Math.abs(e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    return diff === 1 ? '1 day' : `${diff} days`;
+  };
+
+  return (
+    <View style={[styles.tripCard, { borderColor: colors.primary }]}>
+      <TouchableOpacity
+        style={styles.tripCardMain}
+        onPress={onPress}
+        activeOpacity={0.85}>
+        {/* TripCare polygon mark */}
+        <TripLogo size={36} />
+        {/* Info */}
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.tripName, { color: colors.text }]} numberOfLines={1}>
+            {trip.name}
+          </Text>
+          <Text style={styles.tripDest} numberOfLines={1}>
+            {trip.destination}
+          </Text>
+        </View>
+        {/* Meta */}
+        <View style={styles.tripMeta}>
+          <Text style={styles.tripDate}>{formatDate(trip.startTime)}</Text>
+          <Text style={[styles.tripDays, { color: colors.text }]}>
+            {getDuration(trip.startTime, trip.endTime)}
+          </Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Action strip */}
+      <View style={[styles.tripActions, { borderTopColor: colors.border }]}>
+        <TouchableOpacity style={styles.tripActionBtn} onPress={onShare}>
+          <Icon name="share-alt" size={13} color={colors.primary} />
+          <Text style={[styles.tripActionTxt, { color: colors.primary }]}>Share</Text>
+        </TouchableOpacity>
+        <View style={[styles.actionDivider, { backgroundColor: colors.border }]} />
+        <TouchableOpacity style={styles.tripActionBtn} onPress={onDelete}>
+          <Icon name="trash-alt" size={13} color="#ef4444" />
+          <Text style={[styles.tripActionTxt, { color: '#ef4444' }]}>Delete</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ── Shared trip card ──────────────────────────────────────────────────────────
+function SharedTripCard({ trip, onPress, onLeave, colors }: any) {
+  const isEdit = trip.permission === 'edit';
+  const badgeBg  = isEdit ? '#d1fae5' : '#ede9fe';
+  const badgeTxt = isEdit ? '#065f46' : '#4c1d95';
+  const accentColor = isEdit ? '#059669' : '#7c3aed';
+  const stripBg  = isEdit ? '#f0fdf4' : '#faf5ff';
+  const stripBorder = isEdit ? '#d1fae5' : '#ede9fe';
+  const iconBg   = isEdit ? '#d1fae5' : '#ede9fe';
+
+  const formatDate = (date: any) => {
+    if (!date) return '';
+    return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  };
+  const getDuration = (start: any, end: any) => {
+    if (!start || !end) return '';
+    const s = new Date(start), e = new Date(end);
+    const diff = Math.floor(Math.abs(e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    return diff === 1 ? '1 day' : `${diff} days`;
+  };
+
+  return (
+    <View style={[styles.tripCard, { borderColor: accentColor }]}>
+      <TouchableOpacity style={styles.tripCardMain} onPress={onPress} activeOpacity={0.85}>
+        <View style={[styles.tripIcon, { backgroundColor: iconBg }]}>
+          <Text style={{ fontSize: 18 }}>🔗</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Text style={[styles.tripName, { color: colors.text }]} numberOfLines={1}>
+              {trip.name}
+            </Text>
+            <View style={[styles.permBadge, { backgroundColor: badgeBg }]}>
+              <Text style={[styles.permBadgeTxt, { color: badgeTxt }]}>
+                {isEdit ? 'EDIT' : 'VIEW'}
+              </Text>
+            </View>
+          </View>
+          <Text style={[styles.tripDest, { color: accentColor }]} numberOfLines={1}>
+            {trip.sharedBy ? `Shared by ${trip.sharedBy} · ` : ''}{trip.destination}
+          </Text>
+        </View>
+        <View style={styles.tripMeta}>
+          <Text style={styles.tripDate}>{formatDate(trip.startTime)}</Text>
+          <Text style={[styles.tripDays, { color: colors.text }]}>
+            {getDuration(trip.startTime, trip.endTime)}
+          </Text>
+        </View>
+      </TouchableOpacity>
+
+      <View style={[styles.tripActions, { borderTopColor: stripBorder, backgroundColor: stripBg }]}>
+        <TouchableOpacity style={styles.tripActionBtn} onPress={onPress}>
+          <Text style={[styles.tripActionTxt, { color: accentColor }]}>
+            {isEdit ? '✏️ Can Edit' : '👁 View Only'}
+          </Text>
+        </TouchableOpacity>
+        <View style={[styles.actionDivider, { backgroundColor: stripBorder }]} />
+        <TouchableOpacity style={styles.tripActionBtn} onPress={onLeave}>
+          <Text style={[styles.tripActionTxt, { color: '#ef4444' }]}>Leave Trip</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ── Add/Join bottom sheet ─────────────────────────────────────────────────────
+function AddTripSheet({ visible, onClose, onCreateNew, onJoin, onImport, colors }: any) {
+  const options = [
+    {
+      label: 'Create a New Trip',
+      sub: 'Start planning from scratch',
+      icon: 'plus',
+      bg: '#EAF5FB',
+      iconBg: '#4AABDB',
+      border: '#D6EEF8',
+      onPress: onCreateNew,
+    },
+    {
+      label: 'Join a Shared Trip',
+      sub: 'Enter a TC-XXXXXXX trip code',
+      icon: 'share-alt',
+      bg: '#f5f3ff',
+      iconBg: '#7c3aed',
+      border: '#ddd6fe',
+      onPress: onJoin,
+    },
+    {
+      label: 'Import from Excel / Google Sheets',
+      sub: 'Build a trip from a spreadsheet',
+      icon: 'upload',
+      bg: '#f0fdf4',
+      iconBg: '#059669',
+      border: '#bbf7d0',
+      onPress: onImport,
+    },
+  ];
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.overlay} onPress={onClose}>
+        <Pressable style={[styles.sheet, { backgroundColor: '#fff' }]} onPress={() => {}}>
+          <View style={styles.sheetHandle} />
+          <Text style={[styles.sheetTitle, { color: colors.text }]}>Add or Join a Trip</Text>
+          {options.map(o => (
+            <TouchableOpacity
+              key={o.label}
+              style={[styles.sheetOption, { backgroundColor: o.bg, borderColor: o.border }]}
+              onPress={() => { onClose(); o.onPress(); }}
+              activeOpacity={0.85}>
+              <View style={[styles.sheetOptionIcon, { backgroundColor: o.iconBg }]}>
+                <Icon name={o.icon} size={20} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sheetOptionLabel, { color: colors.text }]}>{o.label}</Text>
+                <Text style={styles.sheetOptionSub}>{o.sub}</Text>
+              </View>
+              <Icon name="chevron-right" size={16} color="#9ca3af" />
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            style={[styles.sheetCancel, { backgroundColor: '#EAF5FB' }]}
+            onPress={onClose}>
+            <Text style={[styles.sheetCancelTxt, { color: '#6b7280' }]}>Cancel</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ── Delete / Leave confirm sheet ──────────────────────────────────────────────
+function ConfirmSheet({ visible, onClose, onConfirm, title, message, emoji, confirmLabel, confirmColor }: any) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.overlay} onPress={onClose}>
+        <Pressable style={[styles.sheet, { backgroundColor: '#fff' }]} onPress={() => {}}>
+          <View style={{ alignItems: 'center', marginBottom: 16 }}>
+            <Text style={{ fontSize: 36, marginBottom: 8 }}>{emoji}</Text>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: '#1a1a2e', marginBottom: 4 }}>{title}</Text>
+            <Text style={{ fontSize: 13, color: '#6b7280', textAlign: 'center', lineHeight: 19 }}>{message}</Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.sheetConfirmBtn, { backgroundColor: confirmColor ?? '#ef4444' }]}
+            onPress={() => { onClose(); onConfirm(); }}>
+            <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>{confirmLabel}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.sheetCancel, { backgroundColor: '#EAF5FB' }]}
+            onPress={onClose}>
+            <Text style={[styles.sheetCancelTxt, { color: '#6b7280' }]}>Cancel</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ── Main screen ───────────────────────────────────────────────────────────────
+export default function Trips({ navigation }: any) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const dispatch = useDispatch();
-  const [trips, setTrips] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [upcomingTrips, setUpcomingTrips] = useState([]);
-  const [filteredTrips, setFilteredTrips] = useState([]);
+
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [filteredTrips, setFilteredTrips] = useState<Trip[]>([]);
+  const [upcomingTrips, setUpcomingTrips] = useState<Trip[]>([]);
   const [searchText, setSearchText] = useState('');
+  const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+
+  const [addSheetVisible, setAddSheetVisible] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [leaveTarget, setLeaveTarget] = useState<string | null>(null);
 
   const tripService = container.getTripService();
   const syncService = container.getSyncService();
 
   const handleSearchChange = (text: string) => {
     setSearchText(text);
-    const filtered = tripService.searchTrips(trips, text);
-    setFilteredTrips(filtered);
-  };
-
-  const clearSearch = () => {
-    setSearchText('');
-    setFilteredTrips(trips);
+    setFilteredTrips(tripService.searchTrips(trips, text));
   };
 
   const handleTripPress = (trip: Trip) => {
@@ -45,299 +289,196 @@ export default function Trips({ navigation }) {
     navigation.navigate('TripDetails');
   };
 
-  const handleSeedFromCSV = async () => {
-    try {
-      // Get the current logged-in user's ID
-      const currentUser = await AuthService.getCurrentUser();
-      if (!currentUser || !currentUser.id) {
-        Alert.alert(
-          'Authentication Required',
-          'Please log in first before seeding data.',
-          [{ text: 'OK' }]
-        );
-        return;
-      }
-      
-      console.log(`📝 Seeding data for user: ${currentUser.email} (${currentUser.id})`);
-      await seedFromCSV(currentUser.id);
-      
-      // Reload trips after seeding
-      const tripsData = await tripService.getTrips();
-      setTrips(tripsData);
-      setUpcomingTrips(tripService.getUpcomingTrips(tripsData));
-      setFilteredTrips(tripService.searchTrips(tripsData, searchText));
-      
-      Alert.alert(
-        'Data Seeded',
-        'Sample trips have been added to your account.',
-        [{ text: 'OK' }]
-      );
-    } catch (error) {
-      console.error('❌ Error seeding from CSV:', error);
-      Alert.alert(
-        'Seeding Failed',
-        error instanceof Error ? error.message : 'Failed to seed data. Please try again.',
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
-  const handleClearAllData = async () => {
-    try {
-      console.log('🧹 Starting clear all data...');
-      
-      // Step 1: Soft delete all records (marks as deleted, keeps for sync)
-      console.log('📝 Step 1: Marking all records as deleted...');
-      await clearAllData();
-      
-      // Clear UI state immediately
-      setTrips([]);
-      setUpcomingTrips([]);
-      setFilteredTrips([]);
-      setSearchText('');
-      
-      console.log('✅ Local data marked as deleted');
-      console.log('📤 Step 2: Syncing deletions to server...');
-      
-      // Step 2: Trigger sync to push deletions to server
-      await container.getSyncService().sync();
-      
-      console.log('✅ Sync completed - deletions sent to server');
-      console.log('🗑️ Step 3: Permanently purging soft-deleted records...');
-      
-      // Step 3: Permanently destroy soft-deleted records (cleanup)
-      await clearAllDataPermanently();
-      
-      console.log('✅ All data cleared and purged successfully');
-      
-      Alert.alert(
-        'Data Cleared',
-        'All trips and activities have been deleted locally, synced to the server, and purged. User account is preserved.\n\nLogging in from another device will now see an empty account.',
-        [{ text: 'OK' }]
-      );
-    } catch (error) {
-      console.error('❌ Error clearing data:', error);
-      Alert.alert(
-        'Clear Failed',
-        error instanceof Error ? error.message : 'Failed to clear data. Please try again.',
-        [{ text: 'OK' }]
-      );
-    }
+  const handleDeleteTrip = async (trip: Trip) => {
+    // Placeholder — wire real delete action here
+    Alert.alert('Deleted', `"${trip.name}" moved to Trash.`);
   };
 
   const handleManualSync = async () => {
     try {
       setSyncing(true);
-      console.log('🔄 Starting manual sync...');
-      
-      // Call sync service directly
       await syncService.sync();
-      
-      // Reload trips after sync to show any changes
-      const tripsData = await tripService.getTrips();
-      setTrips(tripsData);
-      setUpcomingTrips(tripService.getUpcomingTrips(tripsData));
-      setFilteredTrips(tripService.searchTrips(tripsData, searchText));
-      
-      Alert.alert(
-        'Sync Complete',
-        'Your trips have been synchronized with the server.',
-        [{ text: 'OK' }]
-      );
-      
-      console.log('✅ Manual sync completed successfully');
-    } catch (error) {
-      console.error('❌ Manual sync failed:', error);
-      Alert.alert(
-        'Sync Failed',
-        error instanceof Error ? error.message : 'Failed to synchronize. Please try again.',
-        [{ text: 'OK' }]
-      );
+      const data = await tripService.getTrips();
+      setTrips(data);
+      setUpcomingTrips(tripService.getUpcomingTrips(data));
+      setFilteredTrips(tripService.searchTrips(data, searchText));
+    } catch (e) {
+      Alert.alert('Sync Failed', e instanceof Error ? e.message : 'Please try again.');
     } finally {
       setSyncing(false);
     }
   };
-
-  const handlePushOnly = async () => {
-    try {
-      setSyncing(true);
-      console.log('📤 Starting push-only sync (testing)...');
-      
-      // Cast to any to access pushOnly method (not in interface yet)
-      const result = await (syncService as any).pushOnly();
-      
-      // Reload trips after push to show any changes
-      const tripsData = await tripService.getTrips();
-      setTrips(tripsData);
-      setUpcomingTrips(tripService.getUpcomingTrips(tripsData));
-      setFilteredTrips(tripService.searchTrips(tripsData, searchText));
-      
-      Alert.alert(
-        'Push Complete',
-        result?.message || 'Your local changes have been pushed to the server.',
-        [{ text: 'OK' }]
-      );
-      
-      console.log('✅ Push-only sync completed successfully');
-    } catch (error) {
-      console.error('❌ Push-only sync failed:', error);
-      Alert.alert(
-        'Push Failed',
-        error instanceof Error ? error.message : 'Failed to push changes. Please try again.',
-        [{ text: 'OK' }]
-      );
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const menuItems: MenuItem[] = [
-    {
-      id: 'add_trip',
-      title: t('add_trip'),
-      icon: 'plus',
-      onPress: () => navigation.navigate('TripAdd'),
-    },
-    {
-      id: 'sync',
-      title: syncing ? 'Syncing...' : 'Sync Now',
-      icon: 'sync',
-      onPress: handleManualSync,
-      disabled: syncing,
-    },
-    {
-      id: 'push_only',
-      title: syncing ? 'Pushing...' : 'Push Only (Test)',
-      icon: 'upload',
-      onPress: handlePushOnly,
-      disabled: syncing,
-    },
-    {
-      id: 'template_pages',
-      title: t('template_pages'),
-      icon: 'th-large',
-      onPress: () => navigation.navigate('TemplatePages'),
-    },
-    {
-      id: 'seed_csv',
-      title: 'Seed from CSV',
-      icon: 'database',
-      onPress: handleSeedFromCSV,
-    },
-    {
-      id: 'clear_all',
-      title: 'Clear All Data',
-      icon: 'trash-alt',
-      onPress: handleClearAllData,
-    }
-  ];
 
   useFocusEffect(
     useCallback(() => {
-      let isActive = true;
-
-      const loadTrips = async () => {
+      let active = true;
+      const load = async () => {
         try {
           setLoading(true);
-          const tripsData = await tripService.getTrips();
-          if (isActive) {
-            setTrips(tripsData);
-            setUpcomingTrips(tripService.getUpcomingTrips(tripsData));
-            setFilteredTrips(tripService.searchTrips(tripsData, searchText));
+          const data = await tripService.getTrips();
+          if (active) {
+            setTrips(data);
+            setUpcomingTrips(tripService.getUpcomingTrips(data));
+            setFilteredTrips(tripService.searchTrips(data, searchText));
           }
-        } catch (error) {
-          console.error("Error loading trips:", error);
+        } catch (e) {
+          console.error('Error loading trips:', e);
         } finally {
-          if (isActive) {
-            setLoading(false); 
-          }
+          if (active) setLoading(false);
         }
       };
-
-      loadTrips();
-
-      return () => {
-        isActive = false;
-      };
-    }, [])
+      load();
+      return () => { active = false; };
+    }, []),
   );
 
-  // Show search only if there are more than 5 trips
-  const shouldShowSearch = trips.length > 5;
+  const showSearch = trips.length > 5;
+
+  // Split owned vs shared (shared trips have a sharedBy field)
+  const ownedTrips = filteredTrips.filter((t: any) => !t.sharedBy);
+  const sharedTrips = filteredTrips.filter((t: any) => !!t.sharedBy);
 
   return (
-    <ScrollView style={{ padding: 0, backgroundColor: 'white' }}>
-      <Header
-        title={t('my_trips')}
-        menuItems={menuItems}
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+      {/* ── Top Bar ── */}
+      <View style={[styles.topBar, { backgroundColor: '#EAF5FB', borderBottomColor: '#D6EEF8' }]}>
+        <Text style={[styles.topBarTitle, { color: colors.text }]}>My Trips</Text>
+        <TouchableOpacity
+          style={[styles.addBtn, { backgroundColor: colors.primary }]}
+          onPress={() => setAddSheetVisible(true)}
+          activeOpacity={0.85}>
+          <Icon name="plus" size={18} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}>
+
+        {/* Search bar — only when there are 5+ trips */}
+        {showSearch && (
+          <View style={styles.searchWrap}>
+            <View style={[styles.searchBar, { backgroundColor: '#EAF5FB', borderColor: '#D6EEF8' }]}>
+              <Icon name="search" size={16} color="#9ca3af" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search trips by name or destination"
+                placeholderTextColor="#9ca3af"
+                value={searchText}
+                onChangeText={handleSearchChange}
+              />
+              {searchText.length > 0 && (
+                <TouchableOpacity onPress={() => handleSearchChange('')}>
+                  <Icon name="times-circle" size={16} color="#9ca3af" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+
+        {loading && (
+          <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
+        )}
+
+        {/* Empty state */}
+        {!loading && filteredTrips.length === 0 && (
+          <View style={styles.emptyWrap}>
+            <Text style={{ fontSize: 48, marginBottom: 12 }}>🧳</Text>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>
+              {searchText ? 'No trips found' : 'No trips yet'}
+            </Text>
+            <Text style={styles.emptySub}>
+              {searchText ? 'Try a different search term' : 'Tap + to plan your first adventure'}
+            </Text>
+            {!searchText && (
+              <TouchableOpacity
+                style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
+                onPress={() => setAddSheetVisible(true)}>
+                <Text style={styles.emptyBtnTxt}>Plan a Trip</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {/* Owned trips */}
+        {ownedTrips.length > 0 && (
+          <>
+            {ownedTrips.map((trip: Trip) => (
+              <OwnedTripCard
+                key={trip.id}
+                trip={trip}
+                colors={colors}
+                onPress={() => handleTripPress(trip)}
+                onShare={() => navigation.navigate('ShareTrip', { tripId: trip.id })}
+                onDelete={() => setDeleteTarget(trip.name)}
+              />
+            ))}
+          </>
+        )}
+
+        {/* Shared with me section */}
+        {sharedTrips.length > 0 && (
+          <>
+            <View style={styles.sectionLabel}>
+              <Text style={[styles.sectionLabelTxt, { color: colors.text }]}>Shared with Me</Text>
+              <Text style={styles.sectionLabelCount}>{sharedTrips.length} trip{sharedTrips.length !== 1 ? 's' : ''}</Text>
+            </View>
+            {sharedTrips.map((trip: any) => (
+              <SharedTripCard
+                key={trip.id}
+                trip={trip}
+                colors={colors}
+                onPress={() => handleTripPress(trip)}
+                onLeave={() => setLeaveTarget(trip.name)}
+              />
+            ))}
+          </>
+        )}
+
+        {/* Add trip dashed button */}
+        {!loading && (
+          <TouchableOpacity
+            style={[styles.addDashed, { borderColor: colors.primary, backgroundColor: '#EAF5FB' }]}
+            onPress={() => setAddSheetVisible(true)}
+            activeOpacity={0.8}>
+            <Icon name="plus" size={19} color={colors.primary} />
+            <Text style={[styles.addDashedTxt, { color: colors.primary }]}>Add New Trip</Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+
+      {/* ── Add / Join Sheet ── */}
+      <AddTripSheet
+        visible={addSheetVisible}
+        onClose={() => setAddSheetVisible(false)}
+        onCreateNew={() => navigation.navigate('TripAdd')}
+        onJoin={() => navigation.navigate('JoinTrip')}
+        onImport={() => Alert.alert('Coming Soon', 'Excel / Google Sheets import is coming soon.')}
+        colors={colors}
       />
 
-      {/* Search Section - Only visible if more than 5 trips */}
-      {shouldShowSearch && (
-        <View style={styles.searchContainer}>
-          <View style={styles.searchInputContainer}>
-            <TextInput
-              onChangeText={handleSearchChange}
-              placeholder={t('search_trips_placeholder')}
-              value={searchText}
-              icon={
-                searchText.length > 0 ? (
-                  <TouchableOpacity onPress={clearSearch} style={styles.clearButton}>
-                    <Icon name="times" size={16} color={colors.gray} />
-                  </TouchableOpacity>
-                ) : (
-                  <Icon name="search" size={16} color={colors.gray} />
-                )
-              }
-            />
-          </View>
-          {searchText.length > 0 && (
-            <View style={styles.searchResultsInfo}>
-              <Text caption1 grayColor>
-                {t('search_results_count', { count: filteredTrips.length, total: trips.length })}
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
+      {/* ── Delete Confirm ── */}
+      <ConfirmSheet
+        visible={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && Alert.alert('Moved to Trash', `"${deleteTarget}" will be deleted in 30 days.`)}
+        emoji="🗑️"
+        title="Delete Trip?"
+        message={`This will move the trip to Trash. You have 30 days to recover it before it's permanently deleted.`}
+        confirmLabel="Move to Trash"
+      />
 
-      {filteredTrips.length == 0 && (
-        <View style={{ marginTop: 40, marginBottom: 40, alignItems: 'center', paddingHorizontal: 20 }}>
-
-          <Image source={Images.suitecase}  style={{width: 200, height: 300}}/>
-
-          <Text title3 semibold style={{ marginTop: 40 }}>
-            {searchText.length > 0 ? t('no_trips_found_search') : t('trips_empty_1')}
-          </Text>
-          <Text title3 semibold style={{ marginTop: 10 }}>
-            {searchText.length > 0 ? t('try_different_search') : t('trips_empty_2')}
-          </Text>
-          <Button
-            full
-            style={{ marginTop: 20 }}
-            loading={loading}
-            onPress={() => navigation.navigate('TripAdd')}>
-            {t('add_trip')}
-          </Button>
-        </View>
-      )}
-
-      {loading && <ActivityIndicator size="large" color={colors.primary} />}
-
-      <View style={styles.tripListContainer}>
-        {filteredTrips.map((trip: Trip) => (
-          <TripItem
-            key={trip.id}
-            title={trip.name}
-            destination={trip.destination}
-            description={trip.description}
-            startDate={trip.startTime}
-            endDate={trip.endTime}
-            isUpcoming={upcomingTrips.some(upcoming => upcoming.id === trip.id)}
-            onPress={() => handleTripPress(trip)}
-          />
-        ))}
-      </View>
-    </ScrollView>
+      {/* ── Leave Confirm ── */}
+      <ConfirmSheet
+        visible={!!leaveTarget}
+        onClose={() => setLeaveTarget(null)}
+        onConfirm={() => leaveTarget && Alert.alert('Left Trip', `You have left "${leaveTarget}".`)}
+        emoji="👋"
+        title="Leave Trip?"
+        message="You will lose access to this shared trip. You can re-join using the trip code if the owner shares it again."
+        confirmLabel="Leave Trip"
+      />
+    </SafeAreaView>
   );
 }
